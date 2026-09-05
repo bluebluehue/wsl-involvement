@@ -97,6 +97,10 @@
             Refresh Live
           </button>
           <div id="inv-refresh-state" class="text-xs text-gray-500"></div>
+          <details id="inv-debug-wrap" class="mt-2 text-left w-full sm:w-[520px]">
+            <summary class="text-xs text-gray-500 cursor-pointer">Live refresh diagnostics</summary>
+            <pre id="inv-debug" class="mt-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words bg-gray-50 border border-gray-200 rounded-md p-2 max-h-64 overflow-auto">No live refresh attempted yet.</pre>
+          </details>
         </div>
       </div>
       <div id="inv-summary" class="mt-3 text-xs text-gray-600"></div>
@@ -161,6 +165,27 @@
   let involvementSort = {key:'involvement_points', direction:'desc'};
   let cooldownTimer = null;
 
+  function debugReset() {
+    const el = $('#inv-debug');
+    if (el) el.textContent = '';
+  }
+
+  function debugLog(message, data) {
+    const el = $('#inv-debug');
+    if (!el) return;
+    const stamp = new Date().toLocaleTimeString();
+    let line = `[${stamp}] ${message}`;
+    if (data !== undefined) {
+      try {
+        line += `\n${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}`;
+      } catch (_) {
+        line += `\n${String(data)}`;
+      }
+    }
+    el.textContent += (el.textContent ? '\n' : '') + line + '\n';
+    el.scrollTop = el.scrollHeight;
+  }
+
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
@@ -172,15 +197,9 @@
   function parseFixtureKickoff(value) {
     if (!value) return NaN;
     const text = String(value).trim();
-
-    // The WSL fixture feed labels match_date_time_utc as UTC but currently
-    // supplies values such as "2026-09-05T11:30:00" with no Z/offset.
-    // Browsers otherwise interpret that as LOCAL time, shifting kickoff by
-    // four/five hours for US users.
     const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text);
     return Date.parse(hasTimezone ? text : `${text}Z`);
   }
-
 
   function jsonpRequest(url, timeoutMs = 20000) {
     return new Promise((resolve, reject) => {
@@ -194,16 +213,43 @@
         script.remove();
       };
 
-      window[callbackName] = payload => { cleanup(); resolve(payload); };
-      script.onerror = () => { cleanup(); reject(new Error('The Opta live feed could not be loaded.')); };
-      timer = setTimeout(() => { cleanup(); reject(new Error('The Opta live feed timed out.')); }, timeoutMs);
+      window[callbackName] = payload => {
+        debugLog(`JSONP callback fired: ${callbackName}`, {
+          top_level_keys: payload && typeof payload === 'object' ? Object.keys(payload) : [],
+          event_count: Array.isArray(payload?.liveData?.event) ? payload.liveData.event.length : null,
+          match_status: payload?.liveData?.matchDetails?.matchStatus ?? payload?.liveData?.matchDetails?.status ?? null
+        });
+        cleanup();
+        resolve(payload);
+      };
+
+      script.onerror = (event) => {
+        debugLog('SCRIPT ERROR while loading Opta URL.', {
+          requested_url: script.src,
+          event_type: event?.type || null
+        });
+        cleanup();
+        reject(new Error('The Opta live feed script failed to load.'));
+      };
+
+      timer = setTimeout(() => {
+        debugLog('TIMEOUT: no JSONP callback after 20 seconds.', {
+          requested_url: script.src,
+          callback_name: callbackName
+        });
+        cleanup();
+        reject(new Error('The Opta live feed timed out.'));
+      }, timeoutMs);
 
       const joiner = url.includes('?') ? '&' : '?';
       script.src = `${url}${joiner}_rt=c&_lcl=en&_fmt=jsonp&sps=widgets&_clbk=${encodeURIComponent(callbackName)}`;
+      debugLog('Injecting Opta JSONP script.', {
+        callback_name: callbackName,
+        requested_url: script.src
+      });
       document.head.appendChild(script);
     });
   }
-
   function optaQualifierIds(event) {
     const qualifiers = Array.isArray(event?.qualifier)
       ? event.qualifier
@@ -430,7 +476,7 @@
 
   function liveCandidateFixtures() {
     const now = Date.now();
-    const lookbackMs = 4 * 60 * 60 * 1000;
+    const lookbackMs = 8 * 60 * 60 * 1000;
     const kickoffGraceMs = 5 * 60 * 1000;
     return (fullFixtureData || []).filter(fixture => {
       const optaId = compactOptaId(fixture.provider_id);
@@ -477,7 +523,13 @@
   }
 
   async function refreshLive() {
+    debugReset();
+    debugLog('Refresh Live clicked.');
+    debugLog('Current page URL', location.href);
+    debugLog('Current browser time', new Date().toString());
+
     if (Date.now() - getLastRefresh() < REFRESH_COOLDOWN_MS) {
+      debugLog('Refresh blocked by 60-second local cooldown.');
       updateCooldownUI();
       return;
     }
@@ -486,12 +538,47 @@
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Refreshing…';
 
+    debugLog('Loaded fixture count', fullFixtureData.length);
+
+    const now = Date.now();
+    const nearby = (fullFixtureData || [])
+      .map(fixture => {
+        const kickoffText = fixture.match_date_time_utc || fixture.deadline_date || fixture.fixture_date_iso || '';
+        const kickoff = parseFixtureKickoff(kickoffText);
+        return {
+          match_id: fixture.match_id,
+          home: fixture.home_name || fixture.home_id,
+          away: fixture.away_name || fixture.away_id,
+          provider_id: fixture.provider_id,
+          opta_id: compactOptaId(fixture.provider_id),
+          kickoff_raw: kickoffText,
+          kickoff_parsed: Number.isFinite(kickoff) ? new Date(kickoff).toString() : 'INVALID',
+          minutes_from_now: Number.isFinite(kickoff) ? Math.round((kickoff - now)/60000) : null,
+          fantasy_game_week: fixture.fantasy_game_week
+        };
+      })
+      .filter(row => row.kickoff_raw && String(row.kickoff_raw).startsWith('2026-09-05'))
+      .sort((a,b) => a.minutes_from_now - b.minutes_from_now);
+
+    debugLog('Fixtures within -6h/+1h of now', nearby);
+
     const candidates = liveCandidateFixtures();
+    debugLog(`Candidate fixtures found: ${candidates.length}`, candidates.map(fixture => ({
+      home: fixture.home_name || fixture.home_id,
+      away: fixture.away_name || fixture.away_id,
+      provider_id: fixture.provider_id,
+      opta_id: compactOptaId(fixture.provider_id),
+      kickoff: fixture.match_date_time_utc || fixture.deadline_date || fixture.fixture_date_iso || null,
+      fantasy_game_week: fixture.fantasy_game_week
+    })));
+
     if (!candidates.length) {
       setLastRefresh(Date.now());
       btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Refresh Live';
-      $('#inv-refresh-state').textContent = 'No matches appear to be live right now.';
+      $('#inv-refresh-state').textContent = 'No candidate matches found. Open diagnostics below.';
+      debugLog('STOP: no candidate fixtures qualified for the 4-hour window.');
       updateCooldownUI();
+      $('#inv-debug-wrap').open = true;
       return;
     }
 
@@ -500,16 +587,38 @@
 
     for (const fixture of candidates) {
       const optaId = compactOptaId(fixture.provider_id);
+      debugLog(`Attempting ${fixture.home_name || fixture.home_id} vs ${fixture.away_name || fixture.away_id}`, {
+        opta_id: optaId
+      });
+
       try {
-        const payload = await jsonpRequest(`${OPTA_MATCH_EVENT_BASE}/${OPTA_WIDGET_FEED_ID}/${optaId}`);
+        const requestUrl = `${OPTA_MATCH_EVENT_BASE}/${OPTA_WIDGET_FEED_ID}/${optaId}`;
+        const payload = await jsonpRequest(requestUrl);
         const match = aggregateLiveOptaMatch(payload, fixture);
+
+        debugLog('Parsed Opta response.', {
+          opta_id: optaId,
+          event_count: match.diagnostics?.event_count || 0,
+          parsed_players: match.players?.length || 0,
+          match_status: match.match_status,
+          live: match.live,
+          live_minute: match.live_minute
+        });
+
         if ((match.diagnostics?.event_count || 0) > 0) {
           liveInvolvementMatches.set(optaId, match);
           withEvents += 1;
+          debugLog('Merged match into the table.');
+        } else {
+          debugLog('Response contained zero match events, so nothing was merged.');
         }
       } catch (err) {
         console.warn('Live refresh failed', fixture, err);
         errors.push(`${fixture.home_id || '?'}–${fixture.away_id || '?'}`);
+        debugLog('ERROR for candidate match.', {
+          message: err?.message || String(err),
+          opta_id: optaId
+        });
       }
     }
 
@@ -519,14 +628,21 @@
 
     const stamp = new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(new Date());
     const liveCount = Array.from(liveInvolvementMatches.values()).filter(m => m.live).length;
-    $('#inv-refresh-state').innerHTML =
-      `Updated ${stamp}` +
-      (liveCount ? ` · <span class="inv-live-note">${liveCount} LIVE</span>` : '') +
-      (errors.length ? ` · <span class="text-red-600">Could not load ${errors.join(', ')}</span>` : '');
+
+    if (withEvents > 0) {
+      $('#inv-refresh-state').innerHTML =
+        `Updated ${stamp} · ${withEvents} match${withEvents===1?'':'es'} refreshed` +
+        (liveCount ? ` · <span class="inv-live-note">${liveCount} LIVE</span>` : '') +
+        (errors.length ? ` · <span class="text-red-600">Some requests failed</span>` : '');
+      debugLog(`SUCCESS: ${withEvents} match(es) with event data merged.`);
+    } else {
+      $('#inv-refresh-state').innerHTML = '<span class="text-red-600 font-semibold">No new Opta event data was loaded. Open diagnostics below.</span>';
+      debugLog('FINISHED WITH NO DATA MERGED.');
+      $('#inv-debug-wrap').open = true;
+    }
 
     updateCooldownUI();
   }
-
   async function init() {
     try {
       const cb = `?v=${Date.now()}`;
