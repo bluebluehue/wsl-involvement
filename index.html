@@ -47,8 +47,8 @@
       background:#f3f4f6; font-size:.72rem; font-weight:700;
     }
   
-    .inv-latest-row { background: rgba(59,130,246,.045); }
-    .inv-latest-row:hover { background: rgba(59,130,246,.08); }
+    .inv-latest-row { background: rgba(245,158,11,.055); }
+    .inv-latest-row:hover { background: rgba(245,158,11,.095); }
     .inv-status-badge { display:inline-flex; align-items:center; margin-left:.4rem; padding:.12rem .42rem; border-radius:999px; font-size:.66rem; font-weight:800; white-space:nowrap; }
     .inv-status-progress { background:#dbeafe; color:#1d4ed8; }
     .inv-status-awaiting { background:#fef3c7; color:#92400e; }
@@ -56,6 +56,10 @@
     .inv-group-latest td { background:#eff6ff; color:#1e40af; }
     .inv-group-settled td { background:#f8fafc; color:#64748b; }
     .inv-settlement-note { margin-top:.35rem; font-size:.72rem; color:#64748b; }
+    .inv-status-key { display:inline-flex; align-items:center; gap:.35rem; margin-top:.28rem; font-size:.7rem; color:#64748b; }
+    .inv-status-dot { width:.48rem; height:.48rem; border-radius:999px; display:inline-block; flex:0 0 auto; }
+    .inv-status-dot-awaiting { background:#f59e0b; }
+    .inv-status-dot-progress { background:#3b82f6; }
 </style>
 </head>
 <body>
@@ -108,7 +112,10 @@
           </button>
           <div id="inv-refresh-state" class="text-xs text-gray-500"></div>
           <div class="text-xs text-gray-500">Updates available roughly every 15 minutes during matches.</div>
-          <div class="inv-settlement-note"><strong>Awaiting settlement</strong> means the match has ended, but these are still the latest Opta event totals and have not yet been added to settled history.</div>
+          <div class="inv-status-key">
+            <span class="inv-status-dot inv-status-dot-awaiting"></span>
+            <span>Shaded rows = latest match data awaiting settlement</span>
+          </div>
         </div>
       </div>
       <div id="inv-summary" class="mt-3 text-xs text-gray-600"></div>
@@ -364,6 +371,14 @@
     return involvementRowsFromMatches(matches.filter(m => String(m.fantasy_game_week || '') === String(gw)));
   }
 
+  function currentFantasyGameweek() {
+    const allMatches = combinedInvolvementMatches();
+    const weeks = allMatches
+      .map(m => Number(m.fantasy_game_week))
+      .filter(n => Number.isFinite(n) && n > 0);
+    return weeks.length ? Math.max(...weeks) : null;
+  }
+
   function populateControls() {
     const weeks = (involvementHistoryData?.metadata?.available_gameweeks || [])
       .map(String).sort((a,b) => Number(a)-Number(b));
@@ -406,8 +421,7 @@
       ? `<span class="inv-actions-near" title="One defensive action short of the next point">${v}</span>` : v;
 
     const statusBadge = row => {
-      if (row.has_live_data) return '<span class="inv-status-badge inv-status-progress">IN PROGRESS</span>';
-      if (row.has_awaiting_settlement) return '<span class="inv-status-badge inv-status-awaiting">AWAITING SETTLEMENT</span>';
+      if (row.has_live_data) return '<span class="inv-status-dot inv-status-dot-progress" title="Match in progress"></span>';
       return '';
     };
 
@@ -437,7 +451,7 @@
     const settledRows = rows.filter(r => !r.has_latest_data);
     let tableHtml = '';
     if (latestRows.length) {
-      tableHtml += '<tr class="inv-group-row inv-group-latest"><td colspan="18">Latest match data · provisional until added to settled history</td></tr>';
+      tableHtml += '<tr class="inv-group-row inv-group-latest"><td colspan="18">Latest match data · awaiting settlement</td></tr>';
       tableHtml += latestRows.map(rowHtml).join('');
     }
     if (settledRows.length) {
@@ -556,8 +570,18 @@
       fullPlayerData = Array.isArray(transformed) ? transformed : (transformed.data || transformed.players || []);
 
       populateControls();
+      const initialGw = currentFantasyGameweek();
+      if (initialGw && Array.from($('#inv-gw').options).some(o => o.value === String(initialGw))) {
+        $('#inv-gw').value = String(initialGw);
+      }
       render();
       await refreshLive();
+      // The latest snapshot may reveal a newer active GW than settled history did.
+      const latestGw = currentFantasyGameweek();
+      if (latestGw && Array.from($('#inv-gw').options).some(o => o.value === String(latestGw))) {
+        $('#inv-gw').value = String(latestGw);
+        render();
+      }
     } catch (err) {
       console.error(err);
       $('#inv-summary').innerHTML = '<span class="text-red-600 font-semibold">Could not load the involvement data.</span>';
