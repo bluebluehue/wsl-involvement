@@ -571,15 +571,15 @@
 
       populateControls();
       const initialGw = currentFantasyGameweek();
-      if (initialGw && Array.from($('#inv-gw').options).some(o => o.value === String(initialGw))) {
-        $('#inv-gw').value = String(initialGw);
+      if (initialGw && Array.from($('#inv-gameweek').options).some(o => o.value === String(initialGw))) {
+        $('#inv-gameweek').value = String(initialGw);
       }
       render();
       await refreshLive();
       // The latest snapshot may reveal a newer active GW than settled history did.
       const latestGw = currentFantasyGameweek();
-      if (latestGw && Array.from($('#inv-gw').options).some(o => o.value === String(latestGw))) {
-        $('#inv-gw').value = String(latestGw);
+      if (latestGw && Array.from($('#inv-gameweek').options).some(o => o.value === String(latestGw))) {
+        $('#inv-gameweek').value = String(latestGw);
         render();
       }
     } catch (err) {
