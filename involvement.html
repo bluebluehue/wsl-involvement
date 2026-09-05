@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WSL Fantasy Involvement Points</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <style>
+    body { background: #f7f8fb; color: #1f2937; }
+    .wrap { max-width: 1600px; margin: 0 auto; }
+    .inv-th { cursor:pointer; user-select:none; white-space:nowrap; }
+    .inv-th:hover { background:#f3f4f6; }
+    .inv-sort-active { background:#eef2ff !important; color:#3730a3 !important; }
+    .inv-total-pill {
+      display:inline-flex; min-width:2rem; justify-content:center;
+      padding:.15rem .42rem; border-radius:9999px; font-weight:700;
+      background:#eef2ff; color:#3730a3;
+    }
+    .inv-point-cell { font-weight:700; background:#f5f3ff; }
+    .inv-actions-near {
+      background:#fef3c7; color:#92400e; font-weight:700;
+      border-radius:.25rem; padding:.08rem .25rem;
+    }
+    .inv-live-button {
+      display:inline-flex; align-items:center; gap:.4rem;
+      padding:.58rem .82rem; border-radius:.5rem; border:1px solid #7c3aed;
+      background:#7c3aed; color:white; font-size:.82rem; font-weight:700;
+      line-height:1; cursor:pointer; white-space:nowrap;
+    }
+    .inv-live-button:hover { background:#6d28d9; }
+    .inv-live-button:disabled { opacity:.62; cursor:not-allowed; }
+    .inv-live-dot {
+      width:.5rem; height:.5rem; border-radius:9999px;
+      background:#ef4444; display:inline-block;
+    }
+    .inv-live-badge {
+      display:inline-flex; align-items:center; gap:.25rem;
+      margin-left:.35rem; padding:.08rem .35rem; border-radius:9999px;
+      background:#fee2e2; color:#b91c1c; font-size:.62rem;
+      font-weight:800; vertical-align:middle;
+    }
+    .inv-live-note { color:#b91c1c; font-weight:700; }
+    .small-note { color:#6b7280; }
+    .team-badge,.pos-badge {
+      display:inline-block; padding:.12rem .35rem; border-radius:.3rem;
+      background:#f3f4f6; font-size:.72rem; font-weight:700;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap px-3 sm:px-5 py-5 sm:py-7">
+    <section class="mb-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">WSL Fantasy Involvement Points</h1>
+          <p class="text-sm text-gray-600 mt-1">
+            Underlying Opta actions behind attacking and defensive involvement points.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-white border border-gray-200 rounded-xl p-3 sm:p-4 mb-3 shadow-sm">
+      <div class="flex flex-wrap gap-3 items-end justify-between">
+        <div class="flex flex-wrap gap-2 items-end">
+          <label class="text-xs font-semibold text-gray-600">Matchweek
+            <select id="inv-gameweek" class="block mt-1 px-2 py-2 border border-gray-300 rounded-md text-sm bg-white">
+              <option value="overall">Overall</option>
+            </select>
+          </label>
+          <label class="text-xs font-semibold text-gray-600">League
+            <select id="inv-league" class="block mt-1 px-2 py-2 border border-gray-300 rounded-md text-sm bg-white">
+              <option value="">WSL + WSL2</option>
+              <option value="WSL">WSL only</option>
+              <option value="WSL2">WSL2 only</option>
+            </select>
+          </label>
+          <label class="text-xs font-semibold text-gray-600">Position
+            <select id="inv-position" class="block mt-1 px-2 py-2 border border-gray-300 rounded-md text-sm bg-white">
+              <option value="">All</option>
+              <option value="GK">GK</option>
+              <option value="DEF">DEF</option>
+              <option value="MID">MID</option>
+              <option value="FOR">FOR</option>
+            </select>
+          </label>
+          <label class="text-xs font-semibold text-gray-600">Club
+            <select id="inv-club" class="block mt-1 px-2 py-2 border border-gray-300 rounded-md text-sm bg-white">
+              <option value="">All clubs</option>
+            </select>
+          </label>
+        </div>
+        <div class="flex flex-col items-start sm:items-end gap-1">
+          <button id="inv-refresh-live" type="button" class="inv-live-button">
+            <i class="fa-solid fa-rotate"></i>
+            Refresh Live
+          </button>
+          <div id="inv-refresh-state" class="text-xs text-gray-500"></div>
+        </div>
+      </div>
+      <div id="inv-summary" class="mt-3 text-xs text-gray-600"></div>
+    </section>
+
+    <section class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-x-auto">
+      <table class="min-w-full text-sm" id="inv-table">
+        <thead class="bg-gray-50 text-gray-600 text-xs uppercase tracking-wide">
+          <tr>
+            <th class="text-left px-3 py-2 inv-th" data-inv-sort="name">Player</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="club">Club</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="position">Pos</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="matches_with_data">M</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="shots_on_target">SOT</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="key_passes">KP</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="successful_crosses">Cross</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="successful_dribbles">Drib</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="attacking_actions">Att Actions</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="attacking_points">Att Pts</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="tackles_won">Tkl</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="interceptions">Int</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="clearances">Clr</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="blocks">Blk</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="recoveries">Rec</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="defensive_actions">Def Actions</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="defensive_points">Def Pts</th>
+            <th class="text-center px-3 py-2 inv-th" data-inv-sort="involvement_points">Total IP</th>
+          </tr>
+        </thead>
+        <tbody id="inv-table-body"></tbody>
+      </table>
+    </section>
+
+    <section class="mt-4 bg-white border border-gray-200 rounded-xl p-3 sm:p-4 text-xs text-gray-600 leading-relaxed">
+      <p><strong>Scoring:</strong> 1 attacking involvement point per 4 combined shots on target, key passes, successful crosses and successful dribbles. 1 defensive involvement point per 10 combined tackles won, interceptions, clearances, blocked shots and recoveries.</p>
+      <p class="mt-2 small-note">Live values are provisional and may change as Opta updates match events.</p>
+    </section>
+
+    <footer class="text-center text-xs text-gray-500 py-6">
+      Unofficial WSL Fantasy tool. Not affiliated with WSL Football. Match-event data sourced from Opta/Stats Perform.
+    </footer>
+  </main>
+
+<script>
+  // This standalone page deliberately reads the existing data files from the main
+  // WSL stats project, so it does not need its own data workflow.
+  const DATA_BASE = '/wsl_stats/';
+  const INVOLVEMENT_HISTORY_PATH = DATA_BASE + 'involvement_history.json';
+  const FIXTURES_PATH = DATA_BASE + 'fixtures.json';
+  const TRANSFORMED_DATA_PATH = DATA_BASE + 'transformed_data.json';
+
+  const OPTA_WIDGET_FEED_ID = 'ft1tiv1inq7v1sk3y9tv12yh5';
+  const OPTA_MATCH_EVENT_BASE = 'https://api.performfeeds.com/soccerdata/matchevent';
+
+  const REFRESH_COOLDOWN_MS = 60 * 1000;
+  const REFRESH_STORAGE_KEY = 'wsl-involvement-last-live-refresh';
+
+  let involvementHistoryData = {metadata:{}, matches:[], players_overall:[]};
+  let fullFixtureData = [];
+  let fullPlayerData = [];
+  let liveInvolvementMatches = new Map();
+  let involvementSort = {key:'involvement_points', direction:'desc'};
+  let cooldownTimer = null;
+
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+  function compactOptaId(value) {
+    const text = String(value || '');
+    return text.includes(':') ? text.split(':').pop() : text;
+  }
+
+  function jsonpRequest(url, timeoutMs = 20000) {
+    return new Promise((resolve, reject) => {
+      const callbackName = `wslInvLive_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const script = document.createElement('script');
+      let timer = null;
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+        script.remove();
+      };
+
+      window[callbackName] = payload => { cleanup(); resolve(payload); };
+      script.onerror = () => { cleanup(); reject(new Error('The Opta live feed could not be loaded.')); };
+      timer = setTimeout(() => { cleanup(); reject(new Error('The Opta live feed timed out.')); }, timeoutMs);
+
+      const joiner = url.includes('?') ? '&' : '?';
+      script.src = `${url}${joiner}_rt=c&_lcl=en&_fmt=jsonp&sps=widgets&_clbk=${encodeURIComponent(callbackName)}`;
+      document.head.appendChild(script);
+    });
+  }
+
+  function optaQualifierIds(event) {
+    const qualifiers = Array.isArray(event?.qualifier)
+      ? event.qualifier
+      : (Array.isArray(event?.qualifiers) ? event.qualifiers : []);
+    return new Set(qualifiers.map(q => Number(q?.qualifierId)).filter(Number.isFinite));
+  }
+
+  function optaEventPlayerId(event) {
+    for (const key of ['playerId','participantId','player_id','participant_id']) {
+      if (event?.[key]) return compactOptaId(event[key]);
+    }
+    return '';
+  }
+
+  function optaIsKeyPass(event) {
+    return ['keypass','keyPass','key_pass'].some(key => {
+      const value = event?.[key];
+      return value === 1 || value === '1' || value === true || value === 'true' || value === 'True';
+    });
+  }
+
+  function aggregateLiveOptaMatch(payload, fixture) {
+    const events = Array.isArray(payload?.liveData?.event) ? payload.liveData.event : [];
+    const byOpta = new Map();
+    const playerLookup = new Map();
+
+    fullPlayerData.forEach(player => {
+      const optaId = compactOptaId(player['Opta Player ID'] || player.opta_player_id || player.optaPlayerId);
+      if (optaId) playerLookup.set(optaId, player);
+    });
+
+    const makeCounts = () => ({
+      shots_on_target:0,key_passes:0,successful_crosses:0,successful_dribbles:0,
+      tackles_won:0,interceptions:0,clearances:0,blocks:0,recoveries:0
+    });
+
+    events.forEach(event => {
+      const type = Number(event?.typeId);
+      const pid = optaEventPlayerId(event);
+      if (!Number.isFinite(type) || !pid) return;
+      if (!byOpta.has(pid)) byOpta.set(pid, makeCounts());
+      const row = byOpta.get(pid);
+      const qids = optaQualifierIds(event);
+      const outcome = Number(event?.outcome) || 0;
+
+      if (type === 15) row.shots_on_target += 1;
+      else if (type === 16 && !qids.has(28)) row.shots_on_target += 1;
+
+      if (type === 1 && optaIsKeyPass(event)) row.key_passes += 1;
+      if (type === 1 && outcome === 1 && qids.has(2)) row.successful_crosses += 1;
+      if (type === 3 && outcome === 1) row.successful_dribbles += 1;
+      if (type === 7 && outcome === 1) row.tackles_won += 1;
+      if (type === 8) row.interceptions += 1;
+      if (type === 12) row.clearances += 1;
+      if (type === 10 && qids.has(94)) row.blocks += 1;
+      if (type === 49) row.recoveries += 1;
+    });
+
+    const players = Array.from(byOpta.entries()).map(([optaId, counts]) => {
+      const player = playerLookup.get(optaId) || {};
+      const attackingActions = counts.shots_on_target + counts.key_passes + counts.successful_crosses + counts.successful_dribbles;
+      const defensiveActions = counts.tackles_won + counts.interceptions + counts.clearances + counts.blocks + counts.recoveries;
+
+      return {
+        opta_player_id:optaId,
+        player_id:player['Player ID'] || player.player_id || null,
+        name:player.Name || `Opta player ${optaId}`,
+        club:player.Club || null,
+        league:player.League || null,
+        position:player.Position || null,
+        ...counts,
+        attacking_actions:attackingActions,
+        attacking_points:Math.floor(attackingActions / 4),
+        defensive_actions:defensiveActions,
+        defensive_points:Math.floor(defensiveActions / 10),
+        involvement_points:Math.floor(attackingActions / 4) + Math.floor(defensiveActions / 10)
+      };
+    });
+
+    const details = payload?.liveData?.matchDetails || {};
+    const rawStatus = String(details.matchStatus || details.status || '').trim();
+    const normalized = rawStatus.toLowerCase();
+    const isFinal = normalized.includes('played') || normalized.includes('full') || normalized === 'ft' || normalized.includes('finished');
+    const maxMinute = events.reduce((max, event) => {
+      const minute = Number(event?.timeMin);
+      return Number.isFinite(minute) ? Math.max(max, minute) : max;
+    }, 0);
+
+    return {
+      match_id:fixture.match_id,
+      date:fixture.match_date_time_utc || fixture.fixture_date_iso,
+      opta_match_id:compactOptaId(fixture.provider_id),
+      home_id:fixture.home_id,
+      away_id:fixture.away_id,
+      competition_id:fixture.competition_id,
+      league_game_week:fixture.league_game_week || fixture.game_week,
+      fantasy_game_week:fixture.fantasy_game_week,
+      description:`${fixture.home_name || fixture.home_id} vs ${fixture.away_name || fixture.away_id}`,
+      match_status:rawStatus || (isFinal ? 'Played' : 'Live'),
+      live:!isFinal && events.length > 0,
+      live_minute:maxMinute || null,
+      players,
+      diagnostics:{event_count:events.length}
+    };
+  }
+
+  function combinedInvolvementMatches() {
+    const byId = new Map((involvementHistoryData.matches || []).map(m => [String(m.opta_match_id || ''), {...m}]));
+    liveInvolvementMatches.forEach((match, id) => byId.set(String(id), match));
+    return Array.from(byId.values());
+  }
+
+  function involvementRowsFromMatches(matches) {
+    const byPlayer = new Map();
+    const fields = [
+      'shots_on_target','key_passes','successful_crosses','successful_dribbles',
+      'attacking_actions','attacking_points','tackles_won','interceptions',
+      'clearances','blocks','recoveries','defensive_actions','defensive_points','involvement_points'
+    ];
+
+    matches.forEach(match => {
+      (match.players || []).forEach(row => {
+        const id = row.player_id || row.opta_player_id || row.name;
+        if (!byPlayer.has(id)) {
+          byPlayer.set(id, {
+            player_id:row.player_id,opta_player_id:row.opta_player_id,name:row.name,
+            club:row.club,league:row.league,position:row.position,matches_with_data:0,
+            has_live_data:false,...Object.fromEntries(fields.map(k => [k,0]))
+          });
+        }
+        const agg = byPlayer.get(id);
+        agg.matches_with_data += 1;
+        agg.has_live_data = agg.has_live_data || Boolean(match.live);
+        fields.forEach(k => agg[k] += Number(row[k] || 0));
+      });
+    });
+    return Array.from(byPlayer.values());
+  }
+
+  function rowsForSelection() {
+    const gw = $('#inv-gameweek').value || 'overall';
+    const matches = combinedInvolvementMatches();
+    if (gw === 'overall') return involvementRowsFromMatches(matches);
+    return involvementRowsFromMatches(matches.filter(m => String(m.fantasy_game_week || '') === String(gw)));
+  }
+
+  function populateControls() {
+    const weeks = (involvementHistoryData?.metadata?.available_gameweeks || [])
+      .map(String).sort((a,b) => Number(a)-Number(b));
+    $('#inv-gameweek').innerHTML = '<option value="overall">Overall</option>' +
+      weeks.map(gw => `<option value="${gw}">GW${gw}</option>`).join('');
+
+    const clubs = Array.from(new Set((involvementHistoryData.players_overall || []).map(p => p.club).filter(Boolean))).sort();
+    $('#inv-club').innerHTML = '<option value="">All clubs</option>' +
+      clubs.map(c => `<option value="${c}">${c}</option>`).join('');
+  }
+
+  function render() {
+    const league = $('#inv-league').value;
+    const position = $('#inv-position').value;
+    const club = $('#inv-club').value;
+    const gw = $('#inv-gameweek').value || 'overall';
+
+    let rows = rowsForSelection().filter(row =>
+      (!league || row.league === league) &&
+      (!position || row.position === position) &&
+      (!club || row.club === club)
+    );
+
+    const {key,direction} = involvementSort;
+    const dir = direction === 'asc' ? 1 : -1;
+    rows.sort((a,b) => {
+      const av=a[key], bv=b[key];
+      if (typeof av === 'string' || typeof bv === 'string') return String(av||'').localeCompare(String(bv||''))*dir;
+      const an=Number(av??-Infinity), bn=Number(bv??-Infinity);
+      if (an !== bn) return (an-bn)*dir;
+      return String(a.name||'').localeCompare(String(b.name||''));
+    });
+
+    $$('.inv-th').forEach(th => th.classList.toggle('inv-sort-active', th.dataset.invSort === key));
+
+    const isSingleGw = gw !== 'overall';
+    const attDisplay = v => isSingleGw && Number(v||0)%4===3
+      ? `<span class="inv-actions-near" title="One attacking action short of the next point">${v}</span>` : v;
+    const defDisplay = v => isSingleGw && Number(v||0)%10===9
+      ? `<span class="inv-actions-near" title="One defensive action short of the next point">${v}</span>` : v;
+
+    $('#inv-table-body').innerHTML = rows.map(row => `
+      <tr class="border-t border-gray-100 hover:bg-gray-50">
+        <td class="px-3 py-2 font-semibold whitespace-nowrap">
+          ${row.name || '—'}
+          ${row.has_live_data ? '<span class="inv-live-badge"><span class="inv-live-dot"></span>LIVE</span>' : ''}
+        </td>
+        <td class="px-3 py-2 text-center"><span class="team-badge">${row.club || '—'}</span></td>
+        <td class="px-3 py-2 text-center"><span class="pos-badge">${row.position || '—'}</span></td>
+        <td class="px-3 py-2 text-center">${row.matches_with_data ?? '—'}</td>
+        <td class="px-3 py-2 text-center">${row.shots_on_target ?? 0}</td>
+        <td class="px-3 py-2 text-center">${row.key_passes ?? 0}</td>
+        <td class="px-3 py-2 text-center">${row.successful_crosses ?? 0}</td>
+        <td class="px-3 py-2 text-center">${row.successful_dribbles ?? 0}</td>
+        <td class="px-3 py-2 text-center">${attDisplay(row.attacking_actions ?? 0)}</td>
+        <td class="px-3 py-2 text-center inv-point-cell">${row.attacking_points ?? 0}</td>
+        <td class="px-3 py-2 text-center">${row.tackles_won ?? 0}</td>
+        <td class="px-3 py-2 text-center">${row.interceptions ?? 0}</td>
+        <td class="px-3 py-2 text-center">${row.clearances ?? 0}</td>
+        <td class="px-3 py-2 text-center">${row.blocks ?? 0}</td>
+        <td class="px-3 py-2 text-center">${row.recoveries ?? 0}</td>
+        <td class="px-3 py-2 text-center">${defDisplay(row.defensive_actions ?? 0)}</td>
+        <td class="px-3 py-2 text-center inv-point-cell">${row.defensive_points ?? 0}</td>
+        <td class="px-3 py-2 text-center"><span class="inv-total-pill">${row.involvement_points ?? 0}</span></td>
+      </tr>`).join('') || '<tr><td colspan="18" class="px-3 py-8 text-center text-gray-500">No players match these filters.</td></tr>';
+
+    const matches = combinedInvolvementMatches().filter(m => gw==='overall' || String(m.fantasy_game_week||'')===String(gw));
+    const liveCount = matches.filter(m => m.live).length;
+    const totalIP = rows.reduce((sum,row) => sum + Number(row.involvement_points||0), 0);
+
+    $('#inv-summary').innerHTML =
+      `<span class="font-semibold">${gw==='overall'?'Overall':'GW'+gw}:</span> ` +
+      `${rows.length} players · ${matches.length} match${matches.length===1?'':'es'}` +
+      `${liveCount ? ` · <span class="inv-live-note">${liveCount} LIVE</span>` : ''}` +
+      ` · ${totalIP} involvement points shown. ` +
+      `<span class="small-note">${isSingleGw ? 'Yellow action totals are one action short of the next threshold.' : 'Overall points are summed from match-level awards.'}</span>`;
+  }
+
+  function liveCandidateFixtures() {
+    const now = Date.now();
+    const lookbackMs = 4 * 60 * 60 * 1000;
+    const kickoffGraceMs = 5 * 60 * 1000;
+    return (fullFixtureData || []).filter(fixture => {
+      const optaId = compactOptaId(fixture.provider_id);
+      if (!optaId) return false;
+      const kickoff = Date.parse(fixture.match_date_time_utc || fixture.deadline_date || '');
+      if (!Number.isFinite(kickoff)) return false;
+      return kickoff <= now + kickoffGraceMs && kickoff >= now - lookbackMs;
+    });
+  }
+
+  function getLastRefresh() {
+    return Number(localStorage.getItem(REFRESH_STORAGE_KEY) || 0);
+  }
+
+  function setLastRefresh(ts) {
+    localStorage.setItem(REFRESH_STORAGE_KEY, String(ts));
+  }
+
+  function updateCooldownUI() {
+    const btn = $('#inv-refresh-live');
+    const state = $('#inv-refresh-state');
+    const remaining = Math.max(0, REFRESH_COOLDOWN_MS - (Date.now() - getLastRefresh()));
+
+    if (remaining > 0) {
+      btn.disabled = true;
+      state.textContent = `Refresh available in ${Math.ceil(remaining/1000)}s`;
+      if (!cooldownTimer) {
+        cooldownTimer = setInterval(() => {
+          const left = Math.max(0, REFRESH_COOLDOWN_MS - (Date.now() - getLastRefresh()));
+          if (left <= 0) {
+            clearInterval(cooldownTimer);
+            cooldownTimer = null;
+            btn.disabled = false;
+            state.textContent = '';
+          } else {
+            state.textContent = `Refresh available in ${Math.ceil(left/1000)}s`;
+          }
+        }, 500);
+      }
+    } else {
+      btn.disabled = false;
+      state.textContent = '';
+    }
+  }
+
+  async function refreshLive() {
+    if (Date.now() - getLastRefresh() < REFRESH_COOLDOWN_MS) {
+      updateCooldownUI();
+      return;
+    }
+
+    const btn = $('#inv-refresh-live');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Refreshing…';
+
+    const candidates = liveCandidateFixtures();
+    if (!candidates.length) {
+      setLastRefresh(Date.now());
+      btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Refresh Live';
+      $('#inv-refresh-state').textContent = 'No matches appear to be live right now.';
+      updateCooldownUI();
+      return;
+    }
+
+    let withEvents = 0;
+    const errors = [];
+
+    for (const fixture of candidates) {
+      const optaId = compactOptaId(fixture.provider_id);
+      try {
+        const payload = await jsonpRequest(`${OPTA_MATCH_EVENT_BASE}/${OPTA_WIDGET_FEED_ID}/${optaId}`);
+        const match = aggregateLiveOptaMatch(payload, fixture);
+        if ((match.diagnostics?.event_count || 0) > 0) {
+          liveInvolvementMatches.set(optaId, match);
+          withEvents += 1;
+        }
+      } catch (err) {
+        console.warn('Live refresh failed', fixture, err);
+        errors.push(`${fixture.home_id || '?'}–${fixture.away_id || '?'}`);
+      }
+    }
+
+    setLastRefresh(Date.now());
+    btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Refresh Live';
+    render();
+
+    const stamp = new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(new Date());
+    const liveCount = Array.from(liveInvolvementMatches.values()).filter(m => m.live).length;
+    $('#inv-refresh-state').innerHTML =
+      `Updated ${stamp}` +
+      (liveCount ? ` · <span class="inv-live-note">${liveCount} LIVE</span>` : '') +
+      (errors.length ? ` · <span class="text-red-600">Could not load ${errors.join(', ')}</span>` : '');
+
+    updateCooldownUI();
+  }
+
+  async function init() {
+    try {
+      const cb = `?v=${Date.now()}`;
+      const [invRes, fixRes, playerRes] = await Promise.all([
+        fetch(INVOLVEMENT_HISTORY_PATH + cb),
+        fetch(FIXTURES_PATH + cb),
+        fetch(TRANSFORMED_DATA_PATH + cb)
+      ]);
+
+      if (!invRes.ok) throw new Error('Could not load involvement_history.json');
+      involvementHistoryData = await invRes.json();
+      fullFixtureData = fixRes.ok ? await fixRes.json() : [];
+      const transformed = playerRes.ok ? await playerRes.json() : [];
+      fullPlayerData = Array.isArray(transformed) ? transformed : (transformed.data || transformed.players || []);
+
+      populateControls();
+      render();
+      updateCooldownUI();
+    } catch (err) {
+      console.error(err);
+      $('#inv-summary').innerHTML = '<span class="text-red-600 font-semibold">Could not load the involvement data.</span>';
+    }
+  }
+
+  ['#inv-gameweek','#inv-league','#inv-position','#inv-club'].forEach(sel => {
+    $(sel).addEventListener('change', render);
+  });
+
+  $$('.inv-th').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.invSort;
+      if (involvementSort.key === key) {
+        involvementSort.direction = involvementSort.direction === 'desc' ? 'asc' : 'desc';
+      } else {
+        involvementSort.key = key;
+        involvementSort.direction = ['name','club','position'].includes(key) ? 'asc' : 'desc';
+      }
+      render();
+    });
+  });
+
+  $('#inv-refresh-live').addEventListener('click', refreshLive);
+
+  init();
+</script>
+</body>
+</html>
