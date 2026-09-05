@@ -46,7 +46,17 @@
       display:inline-block; padding:.12rem .35rem; border-radius:.3rem;
       background:#f3f4f6; font-size:.72rem; font-weight:700;
     }
-  </style>
+  
+    .inv-latest-row { background: rgba(59,130,246,.045); }
+    .inv-latest-row:hover { background: rgba(59,130,246,.08); }
+    .inv-status-badge { display:inline-flex; align-items:center; margin-left:.4rem; padding:.12rem .42rem; border-radius:999px; font-size:.66rem; font-weight:800; white-space:nowrap; }
+    .inv-status-progress { background:#dbeafe; color:#1d4ed8; }
+    .inv-status-awaiting { background:#fef3c7; color:#92400e; }
+    .inv-group-row td { padding:.48rem .75rem; font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.045em; border-top:1px solid #e5e7eb; border-bottom:1px solid #e5e7eb; }
+    .inv-group-latest td { background:#eff6ff; color:#1e40af; }
+    .inv-group-settled td { background:#f8fafc; color:#64748b; }
+    .inv-settlement-note { margin-top:.35rem; font-size:.72rem; color:#64748b; }
+</style>
 </head>
 <body>
   <main class="wrap px-3 sm:px-5 py-5 sm:py-7">
@@ -98,6 +108,7 @@
           </button>
           <div id="inv-refresh-state" class="text-xs text-gray-500"></div>
           <div class="text-xs text-gray-500">Updates available roughly every 15 minutes during matches.</div>
+          <div class="inv-settlement-note"><strong>Awaiting settlement</strong> means the match has ended, but these are still the latest Opta event totals and have not yet been added to settled history.</div>
         </div>
       </div>
       <div id="inv-summary" class="mt-3 text-xs text-gray-600"></div>
@@ -299,8 +310,21 @@
   }
 
   function combinedInvolvementMatches() {
-    const byId = new Map((involvementHistoryData.matches || []).map(m => [String(m.opta_match_id || ''), {...m}]));
-    liveInvolvementMatches.forEach((match, id) => byId.set(String(id), match));
+    const byId = new Map(
+      (involvementHistoryData.matches || []).map(m => [
+        String(m.opta_match_id || ''),
+        {...m, latest_layer:false, settlement_state:'settled'}
+      ])
+    );
+    liveInvolvementMatches.forEach((match, id) => {
+      const key = String(id);
+      if (byId.has(key)) return;
+      byId.set(key, {
+        ...match,
+        latest_layer:true,
+        settlement_state: match.in_progress ? 'in_progress' : 'awaiting_settlement'
+      });
+    });
     return Array.from(byId.values());
   }
 
@@ -319,12 +343,14 @@
           byPlayer.set(id, {
             player_id:row.player_id,opta_player_id:row.opta_player_id,name:row.name,
             club:row.club,league:row.league,position:row.position,matches_with_data:0,
-            has_live_data:false,...Object.fromEntries(fields.map(k => [k,0]))
+            has_live_data:false,has_latest_data:false,has_awaiting_settlement:false,...Object.fromEntries(fields.map(k => [k,0]))
           });
         }
         const agg = byPlayer.get(id);
         agg.matches_with_data += 1;
-        agg.has_live_data = agg.has_live_data || Boolean(match.live);
+        agg.has_live_data = agg.has_live_data || Boolean(match.in_progress || match.live);
+        agg.has_latest_data = agg.has_latest_data || Boolean(match.latest_layer);
+        agg.has_awaiting_settlement = agg.has_awaiting_settlement || Boolean(match.latest_layer && !(match.in_progress || match.live));
         fields.forEach(k => agg[k] += Number(row[k] || 0));
       });
     });
@@ -379,12 +405,15 @@
     const defDisplay = v => isSingleGw && Number(v||0)%10===9
       ? `<span class="inv-actions-near" title="One defensive action short of the next point">${v}</span>` : v;
 
-    $('#inv-table-body').innerHTML = rows.map(row => `
-      <tr class="border-t border-gray-100 hover:bg-gray-50">
-        <td class="px-3 py-2 font-semibold whitespace-nowrap">
-          ${row.name || '—'}
-          ${row.has_live_data ? '<span class="inv-live-badge"><span class="inv-live-dot"></span>IN PROGRESS</span>' : ''}
-        </td>
+    const statusBadge = row => {
+      if (row.has_live_data) return '<span class="inv-status-badge inv-status-progress">IN PROGRESS</span>';
+      if (row.has_awaiting_settlement) return '<span class="inv-status-badge inv-status-awaiting">AWAITING SETTLEMENT</span>';
+      return '';
+    };
+
+    const rowHtml = row => `
+      <tr class="border-t border-gray-100 hover:bg-gray-50 ${row.has_latest_data ? 'inv-latest-row' : ''}">
+        <td class="px-3 py-2 font-semibold whitespace-nowrap">${row.name || '—'} ${statusBadge(row)}</td>
         <td class="px-3 py-2 text-center"><span class="team-badge">${row.club || '—'}</span></td>
         <td class="px-3 py-2 text-center"><span class="pos-badge">${row.position || '—'}</span></td>
         <td class="px-3 py-2 text-center">${row.matches_with_data ?? '—'}</td>
@@ -402,16 +431,30 @@
         <td class="px-3 py-2 text-center">${defDisplay(row.defensive_actions ?? 0)}</td>
         <td class="px-3 py-2 text-center inv-point-cell">${row.defensive_points ?? 0}</td>
         <td class="px-3 py-2 text-center"><span class="inv-total-pill">${row.involvement_points ?? 0}</span></td>
-      </tr>`).join('') || '<tr><td colspan="18" class="px-3 py-8 text-center text-gray-500">No players match these filters.</td></tr>';
+      </tr>`;
+
+    const latestRows = rows.filter(r => r.has_latest_data);
+    const settledRows = rows.filter(r => !r.has_latest_data);
+    let tableHtml = '';
+    if (latestRows.length) {
+      tableHtml += '<tr class="inv-group-row inv-group-latest"><td colspan="18">Latest match data · provisional until added to settled history</td></tr>';
+      tableHtml += latestRows.map(rowHtml).join('');
+    }
+    if (settledRows.length) {
+      tableHtml += '<tr class="inv-group-row inv-group-settled"><td colspan="18">Settled match data</td></tr>';
+      tableHtml += settledRows.map(rowHtml).join('');
+    }
+    $('#inv-table-body').innerHTML = tableHtml || '<tr><td colspan="18" class="px-3 py-8 text-center text-gray-500">No players match these filters.</td></tr>';
 
     const matches = combinedInvolvementMatches().filter(m => gw==='overall' || String(m.fantasy_game_week||'')===String(gw));
-    const liveCount = matches.filter(m => m.live).length;
+    const liveCount = matches.filter(m => m.latest_layer && (m.in_progress || m.live)).length;
+    const awaitingCount = matches.filter(m => m.latest_layer && !(m.in_progress || m.live)).length;
     const totalIP = rows.reduce((sum,row) => sum + Number(row.involvement_points||0), 0);
 
     $('#inv-summary').innerHTML =
       `<span class="font-semibold">${gw==='overall'?'Overall':'GW'+gw}:</span> ` +
       `${rows.length} players · ${matches.length} match${matches.length===1?'':'es'}` +
-      `${liveCount ? ` · <span class="inv-live-note">${liveCount} LIVE</span>` : ''}` +
+      `${liveCount ? ` · <span class="inv-live-note">${liveCount} in progress</span>` : ''}${awaitingCount ? ` · <span class="text-amber-700 font-semibold">${awaitingCount} awaiting settlement</span>` : ''}` +
       ` · ${totalIP} involvement points shown. ` +
       `<span class="small-note">${isSingleGw ? 'Yellow action totals are one action short of the next threshold.' : 'Overall points are summed from match-level awards.'}</span>`;
   }
@@ -514,7 +557,7 @@
 
       populateControls();
       render();
-      updateCooldownUI();
+      await refreshLive();
     } catch (err) {
       console.error(err);
       $('#inv-summary').innerHTML = '<span class="text-red-600 font-semibold">Could not load the involvement data.</span>';
