@@ -304,17 +304,26 @@
     .inv-status-dot-awaiting { background:#f59e0b; }
     .inv-status-dot-progress { background:#3b82f6; }
 
-    /* Freeze Player column during horizontal scrolling. */
-    #inv-table th:first-child,
-    #inv-table td.inv-player-sticky {
+    /* Freeze Player column during horizontal scrolling.
+       On mobile, Club + Pos freeze with it so player identity stays visible. */
+    #inv-table-scroll {
+      --inv-player-width: 10.5rem;
+      --inv-club-width: 4.25rem;
+      --inv-pos-width: 3.65rem;
+    }
+
+    #inv-table .inv-player-sticky {
       position: sticky;
       left: 0;
       z-index: 12;
+      width: var(--inv-player-width);
+      min-width: var(--inv-player-width);
+      max-width: var(--inv-player-width);
       background: #fff;
       box-shadow: 1px 0 0 #e5e7eb;
     }
 
-    #inv-table thead th:first-child {
+    #inv-table thead .inv-player-sticky {
       z-index: 25;
       background: #f9fafb;
     }
@@ -327,12 +336,11 @@
       background: #fffdf7;
     }
 
-    #inv-table .inv-player-sticky {
-      min-width: 10.5rem;
-      max-width: 13rem;
-    }
-
     .inv-last-name { display:none; }
+
+    #inv-table-scroll.inv-scrolled-side {
+      --inv-player-width: 7rem;
+    }
 
     #inv-table-scroll.inv-scrolled-side .inv-full-name {
       display:none;
@@ -342,20 +350,54 @@
       display:inline;
     }
 
-    #inv-table-scroll.inv-scrolled-side .inv-player-sticky {
-      min-width:6.75rem;
-      max-width:8.5rem;
-    }
-
     @media (max-width:640px) {
-      #inv-table .inv-player-sticky {
-        min-width:9.25rem;
-        max-width:10.5rem;
+      #inv-table-scroll {
+        --inv-player-width: 9.25rem;
+        --inv-club-width: 4.25rem;
+        --inv-pos-width: 3.65rem;
       }
 
-      #inv-table-scroll.inv-scrolled-side .inv-player-sticky {
-        min-width:5.75rem;
-        max-width:7rem;
+      #inv-table-scroll.inv-scrolled-side {
+        --inv-player-width: 6rem;
+      }
+
+      #inv-table .inv-club-sticky,
+      #inv-table .inv-pos-sticky {
+        position: sticky;
+        background: #fff;
+      }
+
+      #inv-table .inv-club-sticky {
+        left: var(--inv-player-width);
+        z-index: 11;
+        width: var(--inv-club-width);
+        min-width: var(--inv-club-width);
+        max-width: var(--inv-club-width);
+      }
+
+      #inv-table .inv-pos-sticky {
+        left: calc(var(--inv-player-width) + var(--inv-club-width));
+        z-index: 10;
+        width: var(--inv-pos-width);
+        min-width: var(--inv-pos-width);
+        max-width: var(--inv-pos-width);
+        box-shadow: 1px 0 0 #e5e7eb;
+      }
+
+      #inv-table thead .inv-club-sticky,
+      #inv-table thead .inv-pos-sticky {
+        background: #f9fafb;
+        z-index: 24;
+      }
+
+      #inv-table .inv-latest-row td.inv-club-sticky,
+      #inv-table .inv-latest-row td.inv-pos-sticky {
+        background: #fffefa;
+      }
+
+      #inv-table .inv-latest-row:hover td.inv-club-sticky,
+      #inv-table .inv-latest-row:hover td.inv-pos-sticky {
+        background: #fffdf7;
       }
 
       #inv-filter-row {
@@ -485,10 +527,10 @@
             <th class="text-left px-3 py-2 inv-th inv-player-sticky"
               data-inv-sort="name">Player</th>
 
-            <th class="text-center px-3 py-2 inv-th"
+            <th class="text-center px-3 py-2 inv-th inv-club-sticky"
               data-inv-sort="club">Club</th>
 
-            <th class="text-center px-3 py-2 inv-th"
+            <th class="text-center px-3 py-2 inv-th inv-pos-sticky"
               data-inv-sort="position">Pos</th>
 
             <th class="text-center px-3 py-2 inv-th"
@@ -867,6 +909,17 @@
       : name;
   }
 
+  function lastNameSortKey(fullName) {
+    const name = String(fullName || '').trim();
+    if (!name) return '';
+
+    const parts = name.split(/\s+/);
+    return parts[parts.length - 1]
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase();
+  }
+
   function render() {
 
     const league =
@@ -895,6 +948,16 @@
       direction === 'asc' ? 1 : -1;
 
     rows.sort((a,b) => {
+
+      if (key === 'name') {
+        const surnameCompare = lastNameSortKey(a.name)
+          .localeCompare(lastNameSortKey(b.name));
+
+        if (surnameCompare !== 0) return surnameCompare * dir;
+
+        return String(a.name || '')
+          .localeCompare(String(b.name || '')) * dir;
+      }
 
       const av = a[key];
       const bv = b[key];
@@ -988,11 +1051,11 @@
           ${statusBadge(row)}
         </td>
 
-        <td class="px-3 py-2 text-center">
+        <td class="px-3 py-2 text-center inv-club-sticky">
           ${teamBadgeHtml(row.club)}
         </td>
 
-        <td class="px-3 py-2 text-center">
+        <td class="px-3 py-2 text-center inv-pos-sticky">
           <span class="pos-badge">
             ${row.position || '—'}
           </span>
